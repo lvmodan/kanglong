@@ -3,8 +3,14 @@
 """简单的每日回测工具脚本"""
 
 import bisect
-from jqdata import get_all_trade_days
+# from jqdata import get_all_trade_days
 from datetime import datetime, timedelta
+# import jqfactor_analyzer as ja
+from jqdatasdk import *
+import sys
+phone = sys.argv[1]
+psw = sys.argv[2]
+auth(phone,psw) #账号是申请时所填写的手机号；密码为聚宽官网登录密码，新申请用户默认为手机号后6位
 
 class KLYHStrategy(object):
 
@@ -242,7 +248,7 @@ class IndexStockBeta(object):
 
 import pandas as pd
 from datetime import datetime
-from jqfactor import *
+# from jqfactor import *
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -266,6 +272,7 @@ index_stocks = {
     '399986.XSHE':'中证银行',   #001594.OF 天弘中证银行A
     '399975.XSHE':'中证全指证券公司' #502010.OF 易方达证券公司分级
 }
+
 
 for index_code, index_name in index_stocks.items():
         base_date = datetime.now().strftime('%Y-%m-%d')

@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 
-"""简单的每日回测工具脚本"""
-
 import bisect
-from jqdata import get_all_trade_days
+# from jqdata import get_all_trade_days
 from datetime import datetime, timedelta
+from jqdatasdk import *
+import sys
+phone = sys.argv[1]
+psw = sys.argv[2]
+auth(phone,psw) #账号是申请时所填写的手机号；密码为聚宽官网登录密码，新申请用户默认为手机号后6位
 
 class KLYHStrategy(object):
 
@@ -16,8 +19,8 @@ class KLYHStrategy(object):
 
     def __init__(self, index_stock):
         self._index_stock = index_stock
-        self._pe, self._pb, self._roe = self._index_stock.get_index_beta_factor()
-        self._history_factors = self._index_stock.get_index_beta_history_factors()
+        self._pe, self._pb, self._roe = self._index_stock.get_stock_beta_factor()
+        self._history_factors = self._index_stock.get_stock_beta_history_factors()
 
     def get_trading_position(self, national_debt_rate=0.035):
         """
@@ -25,6 +28,7 @@ class KLYHStrategy(object):
 
         买入条件:
             市场出现系统性低估机会可以买入 (市场出现PE<7、PB<1、股息率>5% (ROE>18%)的品种)，此时满仓(100%)
+            市场出现系统性低估机会可以买入 (市场出现PE,PB处于历史10%以下，此时满仓(100%)
             单一标的PE、PB 处于历史30%以下可以买入
             PE处于历史30%以下，且PB<1.5可以买入
             PB处于历史30%以下，且PE<10 或 1/PE<十年期国债利率X2，可以买入
@@ -51,13 +55,12 @@ class KLYHStrategy(object):
 
         debug_msg = "当前PE:{:.2f},百分位:{:.2f}，当前PB{:.2f},百分位:{:.2f},平均ROE:{:.2f}, 国债利率:{},推荐仓位:".format(self._pe,
                                pe_quantile, self._pb, pb_quantile, avg_roe, national_debt_rate)
-
         # 当市场出现系统性机会时，满仓或清仓
         if self._pe<7.0 and self._pb<1.0 and self._pb/self._pe>0.18:
             print(debug_msg + '1.0')
             return 1.0
 
-        if self._pe>50.0 or self._pb>4.5:
+        if self._pe>50.0 or self._pb>6:
             print(debug_msg + '-1.0')
             return -1.0
 
@@ -93,19 +96,14 @@ class KLYHStrategy(object):
         pe_quantile = self._index_stock.get_quantile_of_history_factors(
                                         pe, self._history_factors['pe'])
         position = 0
+
         if action == 0:
-            if pe_quantile>=0.8 and pe_quantile<0.85:
-                position = -0.02
-            elif pe_quantile>=0.85 and pe_quantile<0.9:
+            if pe_quantile>=0.95 and pe_quantile<0.97:
                 position = -0.1
-            elif pe_quantile>=0.9 and pe_quantile<0.95:
-                position = -0.3
-            elif pe_quantile>=0.95 and pe_quantile<0.97:
-                position = -0.5
             elif pe_quantile>=0.97 and pe_quantile<0.99:
-                position = -0.7
+                position = -0.2
             elif pe_quantile>=0.99:
-                position = -1
+                position = -0.3
             else:
                 pass
             return position
@@ -120,9 +118,10 @@ class KLYHStrategy(object):
             position = (odds * win_rate - (1.0 - win_rate)) * 1.0 / odds
             return position if position > 0 else 0
 
-class IndexStockBeta(object):
 
-    def __init__(self, index_code, index_type=0, base_date=None, history_days=365*8):
+class StockBeta(object):
+
+    def __init__(self, stock_code, index_type=0, base_date=None, history_days=365*8):
         """
         input:
             index_code: 要查询指数的代码
@@ -130,7 +129,7 @@ class IndexStockBeta(object):
             base_date: 查询时间，格式为'yyyy-MM-dd'，默认为当天
             history_days: 默认历史区间位前八年
         """
-        self._index_code = index_code
+        self._stock_code = stock_code
         self._index_type = index_type
         if not base_date:
             self._base_date = datetime.now().date()
@@ -144,7 +143,7 @@ class IndexStockBeta(object):
         self._end_date = self._end_date.strftime('%Y-%m-%d')
         self._base_date = self._base_date.strftime('%Y-%m-%d')
 
-    def get_index_beta_factor(self, day=None):
+    def get_stock_beta_factor(self, day=None):
         """
         获取当前时间的pe, pb值
 
@@ -157,7 +156,7 @@ class IndexStockBeta(object):
         if not day:
             day = datetime.strptime(self._base_date, '%Y-%m-%d')
 
-        stocks = get_index_stocks(self._index_code, day)
+        stocks = [self._stock_code]
         q = query(
             valuation.pe_ratio, valuation.pb_ratio, valuation.circulating_market_cap
         ).filter(
@@ -179,10 +178,10 @@ class IndexStockBeta(object):
         else:
             return (None, None, None)
 
-    def get_index_beta_history_factors(self, interval=7):
+    def get_stock_beta_history_factors(self, interval=7):
         """
         获取任意指数一段时间的历史 pe,pb 估值列表，通过计算当前的估值在历史估值的百分位，来判断当前市场的估值高低。
-        由于加权方式可能不同，可能各个指数公开的估值数据有差异，但用于判断估值相对高低没有问题
+        由于加权方式可能不同，可能公开的估值数据有差异，但用于判断估值相对高低没有问题
 
         input：
             interval: 计算指数估值的间隔天数，增加间隔时间可提高计算性能
@@ -209,7 +208,7 @@ class IndexStockBeta(object):
             if(i % interval != 0):
                 continue
 
-            pe, pb, roe = self.get_index_beta_factor(day)
+            pe, pb, roe = self.get_stock_beta_factor(day)
             if pe and pb and roe:
                 pes.append(pe)
                 pbs.append(pb)
@@ -238,40 +237,39 @@ class IndexStockBeta(object):
         else:
             return 1.0
 
+
 # 测试
 
 import pandas as pd
 from datetime import datetime
-from jqfactor import *
+# from jqfactor import *
 
 import warnings
 warnings.filterwarnings("ignore")
 
-index_stocks = {
-    '399902.XSHE':'中证流通',
-    '000925.XSHG':'基本面50',  #160716.OF 嘉实基本面50指数
-    '000016.XSHG':'上证50',     #110003.OF 易方达上证50指数, 501050,华夏上证50AH优选指数
-    '000300.XSHG':'沪深300',    #000176.OF 嘉实沪深300增强
-    '000905.XSHG':'中证500',    #161017.OF 富国中证500增强
-    '000919.XSHG':'300价值',    #310398.OF 申万沪深300价值
-    '000922.XSHG':'中证红利',   #100032.OF 富国中证红利
-    '399702.XSHE':'深证F120',   #070023.OF 嘉实深F120基本面联接
-    '399978.XSHE':'中证医药100',#001550.OF 天弘中证医药100
-    '399812.XSHE':'中证养老',   #000968.OF 广发中证养老指数
-    '000932.XSHG':'中证消费',   #000248.OF 汇添富中证主要消费ETF联接
-    '000807.XSHG':'食品饮料',   #001631.OF 天弘中证食品饮料
-    '399006.XSHE':'创业板指',   #110026.OF 易方达创业板ETF联接
-    '000992.XSHG':'全指金融',   #001469.OF 广发金融地产联接
-    '000827.XSHG':'中证环保',   #001064.OF 广发中证环保ETF联接A
-    '399986.XSHE':'中证银行',   #001594.OF 天弘中证银行A
-    '399975.XSHE':'中证全指证券公司' #502010.OF 易方达证券公司分级
+
+STOCKS = {
+    '000895.XSHE': '双汇发展',
+    '601088.XSHG': '中国神华',
+    '600900.XSHG': '长江电力',
+    '601988.XSHG': '中国银行',
+    '600383.XSHG': '金地集团',
+    '600377.XSHG': '宁沪高速',
+    '600548.XSHG': '深高速',
+    '600660.XSHG': '福耀玻璃',
+    '000002.XSHE': '万科Ａ',
+    '600021.XSHG': '上海电力',
+    '002508.XSHE': '老板电器',
+    '600036.XSHG': '招商银行',
+    '002142.XSHE': '宁波银行',
+    '600009.XSHG': '上海机场',
+    #'601288.XSHG',	#农业银行
 }
 
-for index_code, index_name in index_stocks.items():
-        base_date = datetime.now().strftime('%Y-%m-%d')
-        #base_date = '2019-1-5'
-        stock = IndexStockBeta(index_code, base_date=base_date, history_days=365*5)
-        print("{}:============{}=============".format(base_date, index_name))
-        stragety = KLYHStrategy(stock)
-        print(stragety.get_trading_position())
-
+for index_code, index_name in STOCKS.items():
+    base_date = datetime.now().strftime('%Y-%m-%d')
+    #base_date = '2019-1-5'
+    stock = StockBeta(index_code, base_date=base_date, history_days=365*5)
+    print("{}:============{}=============".format(base_date, index_name))
+    stragety = KLYHStrategy(stock)
+    print(stragety.get_trading_position())

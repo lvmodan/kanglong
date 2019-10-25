@@ -270,9 +270,9 @@ index_stocks = {
 
 for index_code, index_name in index_stocks.items():
         base_date = datetime.now().strftime('%Y-%m-%d')
-            #base_date = '2019-1-5'
-                stock = IndexStockBeta(index_code, base_date=base_date, history_days=365*5)
-                    print("{}:============{}=============".format(base_date, index_name))
-                        stragety = KLYHStrategy(stock)
-                            print(stragety.get_trading_position())
+        #base_date = '2019-1-5'
+        stock = IndexStockBeta(index_code, base_date=base_date, history_days=365*5)
+        print("{}:============{}=============".format(base_date, index_name))
+        stragety = KLYHStrategy(stock)
+        print(stragety.get_trading_position())
 
